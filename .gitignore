@@ -1,0 +1,64 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Ruff and type-checking caches
+.ruff_cache/
+.mypy_cache/
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Generated inspection output
+outputs/
+artifacts/
+
+# Local datasets and raw production material
+data/raw/
+data/processed/
+
+# Large video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+
+# Temporary images and generated frames
+frames/
+temp/
+tmp/
