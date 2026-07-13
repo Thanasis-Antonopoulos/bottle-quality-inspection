@@ -22,3 +22,6 @@ class RegionOfInterestError(BottleInspectionError):
 
 class ImageWriteError(BottleInspectionError):
     """Raised when an output image cannot be created or written."""
+
+class FrameProcessingError(BottleInspectionError):
+    """Raised when a frame processor returns an invalid result or fails."""
