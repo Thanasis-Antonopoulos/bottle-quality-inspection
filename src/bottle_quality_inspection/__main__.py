@@ -6,12 +6,60 @@ from pathlib import Path
 from bottle_quality_inspection import __version__
 from bottle_quality_inspection.calibration import save_roi_preview
 from bottle_quality_inspection.exceptions import BottleInspectionError
+from bottle_quality_inspection.pipeline import process_video
+from bottle_quality_inspection.processors import RoiOverlayProcessor
 from bottle_quality_inspection.roi import RegionOfInterest
 from bottle_quality_inspection.video_io import (
     copy_video,
     read_video_metadata,
     scan_video,
 )
+
+
+def add_roi_arguments(
+    parser: argparse.ArgumentParser,
+) -> None:
+    """Add common region-of-interest arguments to a parser."""
+    parser.add_argument(
+        "--name",
+        default="inspection-area",
+        help="Name displayed above the region.",
+    )
+    parser.add_argument(
+        "--x",
+        type=int,
+        required=True,
+        help="Horizontal start coordinate.",
+    )
+    parser.add_argument(
+        "--y",
+        type=int,
+        required=True,
+        help="Vertical start coordinate.",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        required=True,
+        help="Region width in pixels.",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        required=True,
+        help="Region height in pixels.",
+    )
+    parser.add_argument(
+        "--thickness",
+        type=int,
+        default=2,
+        help="Rectangle and text thickness. Default: 2.",
+    )
+    parser.add_argument(
+        "--no-label",
+        action="store_true",
+        help="Draw the rectangle without its name.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,73 +122,71 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace an existing output file.",
     )
 
-    roi_parser = subparsers.add_parser(
+    roi_preview_parser = subparsers.add_parser(
         "roi-preview",
         help="Draw a region of interest on a selected video frame.",
     )
-    roi_parser.add_argument(
+    roi_preview_parser.add_argument(
         "input_video",
         type=Path,
         help="Path to the source video.",
     )
-    roi_parser.add_argument(
+    roi_preview_parser.add_argument(
         "output_image",
         type=Path,
         help="Path for the generated preview image.",
     )
-    roi_parser.add_argument(
+    roi_preview_parser.add_argument(
         "--frame-index",
         type=int,
         default=0,
         help="Zero-based video frame index. Default: 0.",
     )
-    roi_parser.add_argument(
-        "--name",
-        default="inspection-area",
-        help="Name displayed above the region.",
-    )
-    roi_parser.add_argument(
-        "--x",
-        type=int,
-        required=True,
-        help="Horizontal start coordinate.",
-    )
-    roi_parser.add_argument(
-        "--y",
-        type=int,
-        required=True,
-        help="Vertical start coordinate.",
-    )
-    roi_parser.add_argument(
-        "--width",
-        type=int,
-        required=True,
-        help="Region width in pixels.",
-    )
-    roi_parser.add_argument(
-        "--height",
-        type=int,
-        required=True,
-        help="Region height in pixels.",
-    )
-    roi_parser.add_argument(
-        "--thickness",
-        type=int,
-        default=2,
-        help="Rectangle and text thickness. Default: 2.",
-    )
-    roi_parser.add_argument(
-        "--no-label",
-        action="store_true",
-        help="Draw the rectangle without its name.",
-    )
-    roi_parser.add_argument(
+    add_roi_arguments(roi_preview_parser)
+    roi_preview_parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace an existing output image.",
     )
 
+    roi_video_parser = subparsers.add_parser(
+        "roi-video",
+        help="Draw a fixed region of interest on every video frame.",
+    )
+    roi_video_parser.add_argument(
+        "input_video",
+        type=Path,
+        help="Path to the source video.",
+    )
+    roi_video_parser.add_argument(
+        "output_video",
+        type=Path,
+        help="Path for the processed output video.",
+    )
+    add_roi_arguments(roi_video_parser)
+    roi_video_parser.add_argument(
+        "--codec",
+        default="mp4v",
+        help="Four-character OpenCV video codec. Default: mp4v.",
+    )
+    roi_video_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing output video.",
+    )
+
     return parser
+
+
+def create_region(args: argparse.Namespace) -> RegionOfInterest:
+    """Create a validated region from CLI arguments."""
+    return RegionOfInterest(
+        name=args.name,
+        x=args.x,
+        y=args.y,
+        width=args.width,
+        height=args.height,
+    )
 
 
 def print_video_metadata(video_path: Path) -> None:
@@ -205,37 +251,18 @@ def print_video_copy(
     print(f"Processing FPS: {processing_fps}")
 
 
-def print_roi_preview(
-    input_path: Path,
-    output_path: Path,
-    *,
-    frame_index: int,
-    name: str,
-    x: int,
-    y: int,
-    width: int,
-    height: int,
-    thickness: int,
-    show_label: bool,
-    overwrite: bool,
-) -> None:
+def print_roi_preview(args: argparse.Namespace) -> None:
     """Create and report an ROI calibration preview."""
-    region = RegionOfInterest(
-        name=name,
-        x=x,
-        y=y,
-        width=width,
-        height=height,
-    )
+    region = create_region(args)
 
     result = save_roi_preview(
-        input_path,
-        output_path,
+        args.input_video,
+        args.output_image,
         region,
-        frame_index=frame_index,
-        thickness=thickness,
-        show_label=show_label,
-        overwrite=overwrite,
+        frame_index=args.frame_index,
+        thickness=args.thickness,
+        show_label=not args.no_label,
+        overwrite=args.overwrite,
     )
 
     print(f"Input video: {result.input_path}")
@@ -247,6 +274,44 @@ def print_roi_preview(
         f"{result.region.name} "
         f"(x={result.region.x}, y={result.region.y}, "
         f"width={result.region.width}, height={result.region.height})"
+    )
+
+
+def print_roi_video(args: argparse.Namespace) -> None:
+    """Draw a configured ROI on every frame of a video."""
+    region = create_region(args)
+
+    processor = RoiOverlayProcessor(
+        region=region,
+        thickness=args.thickness,
+        show_label=not args.no_label,
+    )
+
+    result = process_video(
+        args.input_video,
+        args.output_video,
+        processor,
+        codec=args.codec,
+        overwrite=args.overwrite,
+    )
+
+    processing_fps = (
+        f"{result.processing_fps:.2f}"
+        if result.processing_fps is not None
+        else "Unavailable"
+    )
+
+    print(f"Input video: {result.input_path}")
+    print(f"Output video: {result.output_path}")
+    print(f"Frames processed: {result.frames_processed}")
+    print(f"Codec: {result.codec}")
+    print(f"Elapsed time: {result.elapsed_seconds:.3f} seconds")
+    print(f"Processing FPS: {processing_fps}")
+    print(
+        "Region: "
+        f"{region.name} "
+        f"(x={region.x}, y={region.y}, "
+        f"width={region.width}, height={region.height})"
     )
 
 
@@ -274,19 +339,11 @@ def main() -> int:
             return 0
 
         if args.command == "roi-preview":
-            print_roi_preview(
-                args.input_video,
-                args.output_image,
-                frame_index=args.frame_index,
-                name=args.name,
-                x=args.x,
-                y=args.y,
-                width=args.width,
-                height=args.height,
-                thickness=args.thickness,
-                show_label=not args.no_label,
-                overwrite=args.overwrite,
-            )
+            print_roi_preview(args)
+            return 0
+
+        if args.command == "roi-video":
+            print_roi_video(args)
             return 0
 
     except (OSError, ValueError, BottleInspectionError) as exc:
