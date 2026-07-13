@@ -5,7 +5,7 @@ from pathlib import Path
 
 from bottle_quality_inspection import __version__
 from bottle_quality_inspection.exceptions import BottleInspectionError
-from bottle_quality_inspection.video_io import read_video_metadata
+from bottle_quality_inspection.video_io import read_video_metadata, scan_video
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +33,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the input video.",
     )
 
+    scan_parser = subparsers.add_parser(
+        "scan",
+        help="Decode every frame and report processing performance.",
+    )
+    scan_parser.add_argument(
+        "video",
+        type=Path,
+        help="Path to the input video.",
+    )
+
     return parser
 
 
@@ -53,18 +63,37 @@ def print_video_metadata(video_path: Path) -> None:
     print(f"Estimated duration: {duration}")
 
 
+def print_video_scan(video_path: Path) -> None:
+    """Decode a complete video and print the scan summary."""
+    result = scan_video(video_path)
+
+    processing_fps = (
+        f"{result.processing_fps:.2f}"
+        if result.processing_fps is not None
+        else "Unavailable"
+    )
+
+    print(f"Video: {result.path}")
+    print(f"Frames decoded: {result.frames_decoded}")
+    print(f"Elapsed time: {result.elapsed_seconds:.3f} seconds")
+    print(f"Processing FPS: {processing_fps}")
+
+
 def main() -> int:
     """Run the command-line application."""
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command == "metadata":
-        try:
+    try:
+        if args.command == "metadata":
             print_video_metadata(args.video)
-        except (OSError, BottleInspectionError) as exc:
-            parser.error(str(exc))
+            return 0
 
-        return 0
+        if args.command == "scan":
+            print_video_scan(args.video)
+            return 0
+    except (OSError, BottleInspectionError) as exc:
+        parser.error(str(exc))
 
     parser.print_help()
     return 0

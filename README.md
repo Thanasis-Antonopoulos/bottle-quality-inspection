@@ -82,6 +82,87 @@ Run code-quality checks:
 ```powershell
 ruff check .
 ```
+## Video metadata
+
+Inspect and validate a local video file:
+
+```powershell
+python -m bottle_quality_inspection metadata path\to\video.mp4
+```
+
+Example using the local legacy video:
+
+```powershell
+python -m bottle_quality_inspection metadata legacy\2022\media\20221014_155146-trim.mp4
+```
+
+The command reports:
+
+- Video resolution
+- Frames per second
+- Frame count
+- Estimated duration
+
+It also validates that the file exists, is a regular file, can be opened by OpenCV, and contains valid dimensions.
+
+## Video tools
+
+### Read video metadata
+
+Validate a local video and display its technical properties:
+
+```powershell
+python -m bottle_quality_inspection metadata path\to\video.mp4
+```
+
+Example output:
+
+```text
+Resolution: 2400 x 1080
+FPS: 30.20
+Frames: 92
+Estimated duration: 3.05 seconds
+```
+
+The command validates that:
+
+- The path exists
+- The path points to a file
+- OpenCV can open the video
+- The video has valid dimensions
+
+### Scan a complete video
+
+Decode every video frame and report processing throughput:
+
+```powershell
+python -m bottle_quality_inspection scan path\to\video.mp4
+```
+
+Example using the original local test video:
+
+```powershell
+python -m bottle_quality_inspection scan legacy\2022\media\20221014_155146-trim.mp4
+```
+
+Example output:
+
+```text
+Frames decoded: 92
+Elapsed time: 1.595 seconds
+Processing FPS: 57.69
+```
+
+The scan command:
+
+- Reads frames sequentially
+- Assigns each frame an index
+- Calculates frame timestamps
+- Detects empty or invalid frames
+- Releases OpenCV resources automatically
+- Reports total decoding performance
+
+The original video is excluded from Git and must be available locally.
 
 ## Historical implementations
 
