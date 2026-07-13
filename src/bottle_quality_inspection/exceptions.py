@@ -7,3 +7,7 @@ class BottleInspectionError(Exception):
 
 class VideoOpenError(BottleInspectionError):
     """Raised when a video cannot be opened or contains invalid metadata."""
+
+
+class VideoReadError(BottleInspectionError):
+    """Raised when video frames cannot be decoded correctly."""
