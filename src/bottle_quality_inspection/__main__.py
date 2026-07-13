@@ -4,7 +4,9 @@ import argparse
 from pathlib import Path
 
 from bottle_quality_inspection import __version__
+from bottle_quality_inspection.calibration import save_roi_preview
 from bottle_quality_inspection.exceptions import BottleInspectionError
+from bottle_quality_inspection.roi import RegionOfInterest
 from bottle_quality_inspection.video_io import (
     copy_video,
     read_video_metadata,
@@ -72,6 +74,72 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace an existing output file.",
     )
 
+    roi_parser = subparsers.add_parser(
+        "roi-preview",
+        help="Draw a region of interest on a selected video frame.",
+    )
+    roi_parser.add_argument(
+        "input_video",
+        type=Path,
+        help="Path to the source video.",
+    )
+    roi_parser.add_argument(
+        "output_image",
+        type=Path,
+        help="Path for the generated preview image.",
+    )
+    roi_parser.add_argument(
+        "--frame-index",
+        type=int,
+        default=0,
+        help="Zero-based video frame index. Default: 0.",
+    )
+    roi_parser.add_argument(
+        "--name",
+        default="inspection-area",
+        help="Name displayed above the region.",
+    )
+    roi_parser.add_argument(
+        "--x",
+        type=int,
+        required=True,
+        help="Horizontal start coordinate.",
+    )
+    roi_parser.add_argument(
+        "--y",
+        type=int,
+        required=True,
+        help="Vertical start coordinate.",
+    )
+    roi_parser.add_argument(
+        "--width",
+        type=int,
+        required=True,
+        help="Region width in pixels.",
+    )
+    roi_parser.add_argument(
+        "--height",
+        type=int,
+        required=True,
+        help="Region height in pixels.",
+    )
+    roi_parser.add_argument(
+        "--thickness",
+        type=int,
+        default=2,
+        help="Rectangle and text thickness. Default: 2.",
+    )
+    roi_parser.add_argument(
+        "--no-label",
+        action="store_true",
+        help="Draw the rectangle without its name.",
+    )
+    roi_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing output image.",
+    )
+
     return parser
 
 
@@ -137,6 +205,51 @@ def print_video_copy(
     print(f"Processing FPS: {processing_fps}")
 
 
+def print_roi_preview(
+    input_path: Path,
+    output_path: Path,
+    *,
+    frame_index: int,
+    name: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    thickness: int,
+    show_label: bool,
+    overwrite: bool,
+) -> None:
+    """Create and report an ROI calibration preview."""
+    region = RegionOfInterest(
+        name=name,
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+    )
+
+    result = save_roi_preview(
+        input_path,
+        output_path,
+        region,
+        frame_index=frame_index,
+        thickness=thickness,
+        show_label=show_label,
+        overwrite=overwrite,
+    )
+
+    print(f"Input video: {result.input_path}")
+    print(f"Output image: {result.output_path}")
+    print(f"Frame index: {result.frame_index}")
+    print(f"Timestamp: {result.timestamp_seconds:.3f} seconds")
+    print(
+        "Region: "
+        f"{result.region.name} "
+        f"(x={result.region.x}, y={result.region.y}, "
+        f"width={result.region.width}, height={result.region.height})"
+    )
+
+
 def main() -> int:
     """Run the command-line application."""
     parser = build_parser()
@@ -156,6 +269,22 @@ def main() -> int:
                 args.input_video,
                 args.output_video,
                 codec=args.codec,
+                overwrite=args.overwrite,
+            )
+            return 0
+
+        if args.command == "roi-preview":
+            print_roi_preview(
+                args.input_video,
+                args.output_image,
+                frame_index=args.frame_index,
+                name=args.name,
+                x=args.x,
+                y=args.y,
+                width=args.width,
+                height=args.height,
+                thickness=args.thickness,
+                show_label=not args.no_label,
                 overwrite=args.overwrite,
             )
             return 0
