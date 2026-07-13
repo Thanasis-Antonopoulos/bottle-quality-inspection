@@ -11,7 +11,10 @@ requires-python = ">=3.12,<3.13"
 authors = [
     { name = "Thanasis Antonopoulos" }
 ]
-dependencies = []
+dependencies = [
+    "numpy>=2.0,<3",
+    "opencv-python>=4.10,<5",
+]
 
 [project.optional-dependencies]
 dev = [
