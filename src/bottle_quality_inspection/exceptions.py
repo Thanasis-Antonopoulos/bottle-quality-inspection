@@ -11,3 +11,7 @@ class VideoOpenError(BottleInspectionError):
 
 class VideoReadError(BottleInspectionError):
     """Raised when video frames cannot be decoded correctly."""
+
+
+class VideoWriteError(BottleInspectionError):
+    """Raised when an output video cannot be created or written."""

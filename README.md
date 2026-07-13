@@ -164,6 +164,44 @@ The scan command:
 
 The original video is excluded from Git and must be available locally.
 
+### Copy and validate a video
+
+Decode and re-encode a complete video into a validated output file:
+
+```powershell
+python -m bottle_quality_inspection copy `
+    path\to\input.mp4 `
+    outputs\copied-video.mp4
+```
+
+Replace an existing output file:
+
+```powershell
+python -m bottle_quality_inspection copy `
+    path\to\input.mp4 `
+    outputs\copied-video.mp4 `
+    --overwrite
+```
+
+Use another four-character OpenCV codec:
+
+```powershell
+python -m bottle_quality_inspection copy `
+    path\to\input.mp4 `
+    outputs\copied-video.mp4 `
+    --codec mp4v
+```
+
+The command validates:
+
+- Input and output paths are different
+- The codec contains exactly four characters
+- The source video has valid dimensions and FPS
+- Every decoded frame matches the expected dimensions
+- The output writer opens successfully
+- Existing outputs are not overwritten accidentally
+- Incomplete output files are removed after failures
+
 ## Historical implementations
 
 The original 2022 and experimental 2025 implementations will be preserved under `legacy/`.

@@ -5,7 +5,11 @@ from pathlib import Path
 
 from bottle_quality_inspection import __version__
 from bottle_quality_inspection.exceptions import BottleInspectionError
-from bottle_quality_inspection.video_io import read_video_metadata, scan_video
+from bottle_quality_inspection.video_io import (
+    copy_video,
+    read_video_metadata,
+    scan_video,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,6 +45,31 @@ def build_parser() -> argparse.ArgumentParser:
         "video",
         type=Path,
         help="Path to the input video.",
+    )
+
+    copy_parser = subparsers.add_parser(
+        "copy",
+        help="Decode and write every frame to a new video.",
+    )
+    copy_parser.add_argument(
+        "input_video",
+        type=Path,
+        help="Path to the source video.",
+    )
+    copy_parser.add_argument(
+        "output_video",
+        type=Path,
+        help="Path for the output video.",
+    )
+    copy_parser.add_argument(
+        "--codec",
+        default="mp4v",
+        help="Four-character OpenCV video codec. Default: mp4v.",
+    )
+    copy_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing output file.",
     )
 
     return parser
@@ -79,6 +108,35 @@ def print_video_scan(video_path: Path) -> None:
     print(f"Processing FPS: {processing_fps}")
 
 
+def print_video_copy(
+    input_path: Path,
+    output_path: Path,
+    *,
+    codec: str,
+    overwrite: bool,
+) -> None:
+    """Copy a video through the validated OpenCV writer."""
+    result = copy_video(
+        input_path,
+        output_path,
+        codec=codec,
+        overwrite=overwrite,
+    )
+
+    processing_fps = (
+        f"{result.processing_fps:.2f}"
+        if result.processing_fps is not None
+        else "Unavailable"
+    )
+
+    print(f"Input video: {result.input_path}")
+    print(f"Output video: {result.output_path}")
+    print(f"Codec: {result.codec}")
+    print(f"Frames written: {result.frames_written}")
+    print(f"Elapsed time: {result.elapsed_seconds:.3f} seconds")
+    print(f"Processing FPS: {processing_fps}")
+
+
 def main() -> int:
     """Run the command-line application."""
     parser = build_parser()
@@ -92,7 +150,17 @@ def main() -> int:
         if args.command == "scan":
             print_video_scan(args.video)
             return 0
-    except (OSError, BottleInspectionError) as exc:
+
+        if args.command == "copy":
+            print_video_copy(
+                args.input_video,
+                args.output_video,
+                codec=args.codec,
+                overwrite=args.overwrite,
+            )
+            return 0
+
+    except (OSError, ValueError, BottleInspectionError) as exc:
         parser.error(str(exc))
 
     parser.print_help()

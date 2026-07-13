@@ -1,6 +1,7 @@
-"""Video input, frame decoding, and metadata utilities."""
+"""Video input, output, frame decoding, and metadata utilities."""
 
 from collections.abc import Iterator
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -8,7 +9,11 @@ from time import perf_counter
 import cv2
 import numpy as np
 
-from bottle_quality_inspection.exceptions import VideoOpenError, VideoReadError
+from bottle_quality_inspection.exceptions import (
+    VideoOpenError,
+    VideoReadError,
+    VideoWriteError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,8 +61,27 @@ class VideoScanResult:
         return self.frames_decoded / self.elapsed_seconds
 
 
+@dataclass(frozen=True, slots=True)
+class VideoWriteResult:
+    """Summary produced after writing an output video."""
+
+    input_path: Path
+    output_path: Path
+    frames_written: int
+    elapsed_seconds: float
+    codec: str
+
+    @property
+    def processing_fps(self) -> float | None:
+        """Return the achieved decode-and-write throughput."""
+        if self.elapsed_seconds <= 0:
+            return None
+
+        return self.frames_written / self.elapsed_seconds
+
+
 def _resolve_video_path(video_path: str | Path) -> Path:
-    """Resolve and validate a local video path."""
+    """Resolve and validate a local input video path."""
     path = Path(video_path).expanduser().resolve()
 
     if not path.exists():
@@ -67,6 +91,34 @@ def _resolve_video_path(video_path: str | Path) -> Path:
         raise IsADirectoryError(f"Video path is not a file: {path}")
 
     return path
+
+
+def _resolve_output_path(
+    input_path: Path,
+    output_path: str | Path,
+    *,
+    overwrite: bool,
+) -> Path:
+    """Resolve and validate a destination video path."""
+    output = Path(output_path).expanduser().resolve()
+
+    if output == input_path:
+        raise VideoWriteError("Input and output video paths must be different.")
+
+    if output.exists():
+        if not overwrite:
+            raise FileExistsError(
+                f"Output video already exists. Use --overwrite to replace it: {output}"
+            )
+
+        if not output.is_file():
+            raise IsADirectoryError(f"Output path is not a file: {output}")
+
+        output.unlink()
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    return output
 
 
 def _metadata_from_capture(
@@ -168,4 +220,102 @@ def scan_video(video_path: str | Path) -> VideoScanResult:
         path=path,
         frames_decoded=frames_decoded,
         elapsed_seconds=elapsed_seconds,
+    )
+
+
+def copy_video(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    codec: str = "mp4v",
+    overwrite: bool = False,
+) -> VideoWriteResult:
+    """Decode and re-encode a complete video without modifying its frames."""
+    source = _resolve_video_path(input_path)
+
+    if len(codec) != 4:
+        raise ValueError("Video codec must contain exactly four characters.")
+
+    destination = _resolve_output_path(
+        source,
+        output_path,
+        overwrite=overwrite,
+    )
+
+    capture = cv2.VideoCapture(str(source))
+    writer: cv2.VideoWriter | None = None
+    frames_written = 0
+    completed = False
+    started_at = perf_counter()
+
+    try:
+        if not capture.isOpened():
+            raise VideoOpenError(f"OpenCV could not open the video: {source}")
+
+        metadata = _metadata_from_capture(source, capture)
+
+        if metadata.fps <= 0:
+            raise VideoWriteError(
+                f"Video has an invalid FPS value and cannot be written: {metadata.fps}"
+            )
+
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+
+        writer = cv2.VideoWriter(
+            str(destination),
+            fourcc,
+            metadata.fps,
+            (metadata.width, metadata.height),
+        )
+
+        if not writer.isOpened():
+            raise VideoWriteError(
+                f"OpenCV could not create the output video: {destination}"
+            )
+
+        while True:
+            success, frame = capture.read()
+
+            if not success:
+                break
+
+            if frame is None or frame.size == 0:
+                raise VideoReadError(
+                    f"OpenCV returned an empty frame at index {frames_written}: {source}"
+                )
+
+            frame_height, frame_width = frame.shape[:2]
+
+            if frame_width != metadata.width or frame_height != metadata.height:
+                raise VideoReadError(
+                    "Decoded frame dimensions do not match the source metadata: "
+                    f"frame={frame_width}x{frame_height}, "
+                    f"metadata={metadata.width}x{metadata.height}"
+                )
+
+            writer.write(frame)
+            frames_written += 1
+
+        if frames_written == 0:
+            raise VideoReadError(f"No video frames could be decoded: {source}")
+
+        completed = True
+    finally:
+        capture.release()
+
+        if writer is not None:
+            writer.release()
+
+        if not completed and destination.exists():
+            with suppress(OSError):
+                destination.unlink()
+
+    elapsed_seconds = perf_counter() - started_at
+
+    return VideoWriteResult(
+        input_path=source,
+        output_path=destination,
+        frames_written=frames_written,
+        elapsed_seconds=elapsed_seconds,
+        codec=codec,
     )
