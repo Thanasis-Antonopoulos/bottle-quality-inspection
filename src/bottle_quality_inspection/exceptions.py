@@ -15,3 +15,10 @@ class VideoReadError(BottleInspectionError):
 
 class VideoWriteError(BottleInspectionError):
     """Raised when an output video cannot be created or written."""
+
+
+class RegionOfInterestError(BottleInspectionError):
+    """Raised when a region of interest is invalid for an image frame."""
+
+class ImageWriteError(BottleInspectionError):
+    """Raised when an output image cannot be created or written."""
