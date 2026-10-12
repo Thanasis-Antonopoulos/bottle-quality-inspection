@@ -5,7 +5,20 @@ from pathlib import Path
 
 from bottle_quality_inspection import __version__
 from bottle_quality_inspection.calibration import save_roi_preview
-from bottle_quality_inspection.exceptions import BottleInspectionError
+from bottle_quality_inspection.config import load_inspection_config
+from bottle_quality_inspection.exceptions import (
+    BottleInspectionError,
+    ConfigurationError,
+)
+from bottle_quality_inspection.inspection_preview import (
+    save_cork_preview,
+    save_foreign_object_preview,
+    save_liquid_level_preview,
+)
+from bottle_quality_inspection.inspections.cork import CorkConfig
+from bottle_quality_inspection.inspections.liquid_level import (
+    LiquidLevelConfig,
+)
 from bottle_quality_inspection.pipeline import process_video
 from bottle_quality_inspection.processors import RoiOverlayProcessor
 from bottle_quality_inspection.roi import RegionOfInterest
@@ -62,6 +75,42 @@ def add_roi_arguments(
     )
 
 
+def add_config_preview_arguments(
+    parser: argparse.ArgumentParser,
+) -> None:
+    """Add common configuration-driven preview arguments."""
+    parser.add_argument(
+        "input_video",
+        type=Path,
+        help="Path to the source video.",
+    )
+    parser.add_argument(
+        "output_image",
+        type=Path,
+        help="Path for the generated inspection preview.",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/legacy-2022.toml"),
+        help=(
+            "Inspection configuration profile. "
+            "Default: configs/legacy-2022.toml."
+        ),
+    )
+    parser.add_argument(
+        "--frame-index",
+        type=int,
+        default=0,
+        help="Zero-based video-frame index. Default: 0.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing output image.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the application command-line parser."""
     parser = argparse.ArgumentParser(
@@ -75,7 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
 
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(
+        dest="command"
+    )
 
     metadata_parser = subparsers.add_parser(
         "metadata",
@@ -140,9 +191,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--frame-index",
         type=int,
         default=0,
-        help="Zero-based video frame index. Default: 0.",
+        help="Zero-based video-frame index. Default: 0.",
     )
-    add_roi_arguments(roi_preview_parser)
+    add_roi_arguments(
+        roi_preview_parser
+    )
     roi_preview_parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -163,7 +216,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Path for the processed output video.",
     )
-    add_roi_arguments(roi_video_parser)
+    add_roi_arguments(
+        roi_video_parser
+    )
     roi_video_parser.add_argument(
         "--codec",
         default="mp4v",
@@ -175,10 +230,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace an existing output video.",
     )
 
+    foreign_preview_parser = subparsers.add_parser(
+        "foreign-object-preview",
+        help="Inspect one bottle ROI for possible foreign objects.",
+    )
+    add_config_preview_arguments(
+        foreign_preview_parser
+    )
+
+    liquid_preview_parser = subparsers.add_parser(
+        "liquid-level-preview",
+        help="Inspect the liquid level in one configured bottle ROI.",
+    )
+    add_config_preview_arguments(
+        liquid_preview_parser
+    )
+
+    cork_preview_parser = subparsers.add_parser(
+        "cork-preview",
+        help="Inspect one complete video frame using the cork template.",
+    )
+    add_config_preview_arguments(
+        cork_preview_parser
+    )
+
     return parser
 
 
-def create_region(args: argparse.Namespace) -> RegionOfInterest:
+def create_region(
+    args: argparse.Namespace,
+) -> RegionOfInterest:
     """Create a validated region from CLI arguments."""
     return RegionOfInterest(
         name=args.name,
@@ -189,9 +270,13 @@ def create_region(args: argparse.Namespace) -> RegionOfInterest:
     )
 
 
-def print_video_metadata(video_path: Path) -> None:
+def print_video_metadata(
+    video_path: Path,
+) -> None:
     """Read and print metadata for a video."""
-    metadata = read_video_metadata(video_path)
+    metadata = read_video_metadata(
+        video_path
+    )
 
     duration = (
         f"{metadata.duration_seconds:.2f} seconds"
@@ -200,15 +285,24 @@ def print_video_metadata(video_path: Path) -> None:
     )
 
     print(f"Video: {metadata.path}")
-    print(f"Resolution: {metadata.width} x {metadata.height}")
+    print(
+        f"Resolution: "
+        f"{metadata.width} x {metadata.height}"
+    )
     print(f"FPS: {metadata.fps:.2f}")
     print(f"Frames: {metadata.frame_count}")
-    print(f"Estimated duration: {duration}")
+    print(
+        f"Estimated duration: {duration}"
+    )
 
 
-def print_video_scan(video_path: Path) -> None:
+def print_video_scan(
+    video_path: Path,
+) -> None:
     """Decode a complete video and print the scan summary."""
-    result = scan_video(video_path)
+    result = scan_video(
+        video_path
+    )
 
     processing_fps = (
         f"{result.processing_fps:.2f}"
@@ -217,9 +311,17 @@ def print_video_scan(video_path: Path) -> None:
     )
 
     print(f"Video: {result.path}")
-    print(f"Frames decoded: {result.frames_decoded}")
-    print(f"Elapsed time: {result.elapsed_seconds:.3f} seconds")
-    print(f"Processing FPS: {processing_fps}")
+    print(
+        f"Frames decoded: "
+        f"{result.frames_decoded}"
+    )
+    print(
+        f"Elapsed time: "
+        f"{result.elapsed_seconds:.3f} seconds"
+    )
+    print(
+        f"Processing FPS: {processing_fps}"
+    )
 
 
 def print_video_copy(
@@ -243,17 +345,33 @@ def print_video_copy(
         else "Unavailable"
     )
 
-    print(f"Input video: {result.input_path}")
-    print(f"Output video: {result.output_path}")
+    print(
+        f"Input video: {result.input_path}"
+    )
+    print(
+        f"Output video: {result.output_path}"
+    )
     print(f"Codec: {result.codec}")
-    print(f"Frames written: {result.frames_written}")
-    print(f"Elapsed time: {result.elapsed_seconds:.3f} seconds")
-    print(f"Processing FPS: {processing_fps}")
+    print(
+        f"Frames written: "
+        f"{result.frames_written}"
+    )
+    print(
+        f"Elapsed time: "
+        f"{result.elapsed_seconds:.3f} seconds"
+    )
+    print(
+        f"Processing FPS: {processing_fps}"
+    )
 
 
-def print_roi_preview(args: argparse.Namespace) -> None:
+def print_roi_preview(
+    args: argparse.Namespace,
+) -> None:
     """Create and report an ROI calibration preview."""
-    region = create_region(args)
+    region = create_region(
+        args
+    )
 
     result = save_roi_preview(
         args.input_video,
@@ -265,21 +383,37 @@ def print_roi_preview(args: argparse.Namespace) -> None:
         overwrite=args.overwrite,
     )
 
-    print(f"Input video: {result.input_path}")
-    print(f"Output image: {result.output_path}")
-    print(f"Frame index: {result.frame_index}")
-    print(f"Timestamp: {result.timestamp_seconds:.3f} seconds")
+    print(
+        f"Input video: {result.input_path}"
+    )
+    print(
+        f"Output image: {result.output_path}"
+    )
+    print(
+        f"Frame index: {result.frame_index}"
+    )
+    print(
+        f"Timestamp: "
+        f"{result.timestamp_seconds:.3f} seconds"
+    )
+
     print(
         "Region: "
         f"{result.region.name} "
-        f"(x={result.region.x}, y={result.region.y}, "
-        f"width={result.region.width}, height={result.region.height})"
+        f"(x={result.region.x}, "
+        f"y={result.region.y}, "
+        f"width={result.region.width}, "
+        f"height={result.region.height})"
     )
 
 
-def print_roi_video(args: argparse.Namespace) -> None:
+def print_roi_video(
+    args: argparse.Namespace,
+) -> None:
     """Draw a configured ROI on every frame of a video."""
-    region = create_region(args)
+    region = create_region(
+        args
+    )
 
     processor = RoiOverlayProcessor(
         region=region,
@@ -301,17 +435,369 @@ def print_roi_video(args: argparse.Namespace) -> None:
         else "Unavailable"
     )
 
-    print(f"Input video: {result.input_path}")
-    print(f"Output video: {result.output_path}")
-    print(f"Frames processed: {result.frames_processed}")
+    print(
+        f"Input video: {result.input_path}"
+    )
+    print(
+        f"Output video: {result.output_path}"
+    )
+    print(
+        f"Frames processed: "
+        f"{result.frames_processed}"
+    )
     print(f"Codec: {result.codec}")
-    print(f"Elapsed time: {result.elapsed_seconds:.3f} seconds")
-    print(f"Processing FPS: {processing_fps}")
+    print(
+        f"Elapsed time: "
+        f"{result.elapsed_seconds:.3f} seconds"
+    )
+    print(
+        f"Processing FPS: {processing_fps}"
+    )
+
     print(
         "Region: "
         f"{region.name} "
-        f"(x={region.x}, y={region.y}, "
-        f"width={region.width}, height={region.height})"
+        f"(x={region.x}, "
+        f"y={region.y}, "
+        f"width={region.width}, "
+        f"height={region.height})"
+    )
+
+
+def print_foreign_object_preview(
+    args: argparse.Namespace,
+) -> None:
+    """Inspect and report one foreign-object preview."""
+    inspection_config = load_inspection_config(
+        args.config
+    )
+
+    foreign_config = (
+        inspection_config.foreign_object
+    )
+
+    if not foreign_config.enabled:
+        raise ConfigurationError(
+            "Foreign-object inspection is disabled "
+            "in the selected profile."
+        )
+
+    region = foreign_config.roi.to_roi()
+
+    algorithm_config = (
+        foreign_config.to_algorithm_config()
+    )
+
+    result = save_foreign_object_preview(
+        args.input_video,
+        args.output_image,
+        region,
+        config=algorithm_config,
+        frame_index=args.frame_index,
+        overwrite=args.overwrite,
+    )
+
+    inspection = result.inspection
+    decision_region = (
+        foreign_config.decision_region
+    )
+
+    print(
+        f"Profile: {inspection_config.profile}"
+    )
+    print(
+        "Configuration: "
+        f"{args.config.expanduser().resolve()}"
+    )
+    print(
+        f"Input video: {result.input_path}"
+    )
+    print(
+        f"Output image: {result.output_path}"
+    )
+    print(
+        f"Frame index: {result.frame_index}"
+    )
+    print(
+        f"Timestamp: "
+        f"{result.timestamp_seconds:.3f} seconds"
+    )
+
+    print(
+        "Inspection ROI: "
+        f"x={foreign_config.roi.x}, "
+        f"y={foreign_config.roi.y}, "
+        f"width={foreign_config.roi.width}, "
+        f"height={foreign_config.roi.height}"
+    )
+
+    print(
+        "Decision region: "
+        f"x={decision_region.x}, "
+        f"y={decision_region.y}, "
+        f"width={decision_region.width}, "
+        f"height={decision_region.height}"
+    )
+
+    print(
+        f"Status: {inspection.status.value}"
+    )
+    print(
+        f"Bottle detected: "
+        f"{inspection.bottle_detected}"
+    )
+    print(
+        "Raw anomaly pixels: "
+        f"{inspection.raw_anomaly_pixel_count}"
+    )
+    print(
+        "Decision black pixels: "
+        f"{inspection.decision_black_pixel_count}"
+    )
+    print(
+        "Largest contour area: "
+        f"{inspection.largest_contour_area:.2f}"
+    )
+    print(
+        "Selected components: "
+        f"{inspection.selected_component_count}"
+    )
+    print(
+        "Defect threshold: "
+        f"{foreign_config.defect_pixel_threshold}"
+    )
+
+
+def print_liquid_level_preview(
+    args: argparse.Namespace,
+) -> None:
+    """Inspect and report one liquid-level preview."""
+    inspection_config = load_inspection_config(
+        args.config
+    )
+
+    liquid_config = (
+        inspection_config.liquid_level
+    )
+
+    if not liquid_config.enabled:
+        raise ConfigurationError(
+            "Liquid-level inspection is disabled "
+            "in the selected profile."
+        )
+
+    region = liquid_config.roi.to_roi()
+
+    algorithm_config = LiquidLevelConfig(
+        neck_region=liquid_config.neck_region.to_roi(),
+        canny_threshold1=(
+            liquid_config.canny_threshold1
+        ),
+        canny_threshold2=(
+            liquid_config.canny_threshold2
+        ),
+        hough_rho=liquid_config.hough_rho,
+        hough_theta_degrees=(
+            liquid_config.hough_theta_degrees
+        ),
+        hough_threshold=(
+            liquid_config.hough_threshold
+        ),
+        minimum_line_length=(
+            liquid_config.minimum_line_length
+        ),
+        maximum_line_gap=(
+            liquid_config.maximum_line_gap
+        ),
+        acceptable_minimum=(
+            liquid_config.acceptable_minimum
+        ),
+        acceptable_maximum=(
+            liquid_config.acceptable_maximum
+        ),
+    )
+
+    result = save_liquid_level_preview(
+        args.input_video,
+        args.output_image,
+        region,
+        config=algorithm_config,
+        frame_index=args.frame_index,
+        overwrite=args.overwrite,
+    )
+
+    inspection = result.inspection
+    neck_region = liquid_config.neck_region
+
+    print(
+        f"Profile: {inspection_config.profile}"
+    )
+    print(
+        "Configuration: "
+        f"{args.config.expanduser().resolve()}"
+    )
+    print(
+        f"Input video: {result.input_path}"
+    )
+    print(
+        f"Output image: {result.output_path}"
+    )
+    print(
+        f"Frame index: {result.frame_index}"
+    )
+    print(
+        f"Timestamp: "
+        f"{result.timestamp_seconds:.3f} seconds"
+    )
+
+    print(
+        "Inspection ROI: "
+        f"x={liquid_config.roi.x}, "
+        f"y={liquid_config.roi.y}, "
+        f"width={liquid_config.roi.width}, "
+        f"height={liquid_config.roi.height}"
+    )
+
+    print(
+        "Neck region: "
+        f"x={neck_region.x}, "
+        f"y={neck_region.y}, "
+        f"width={neck_region.width}, "
+        f"height={neck_region.height}"
+    )
+
+    print(
+        f"Status: {inspection.status.value}"
+    )
+    print(
+        f"Level detected: "
+        f"{inspection.level_detected}"
+    )
+    print(
+        "Detected lines: "
+        f"{inspection.detected_line_count}"
+    )
+
+    if inspection.relative_level is None:
+        print(
+            "Relative liquid level: unavailable"
+        )
+    else:
+        print(
+            "Relative liquid level: "
+            f"{inspection.relative_level:.2f}"
+        )
+
+    if inspection.absolute_level is None:
+        print(
+            "Liquid level: unavailable"
+        )
+    else:
+        print(
+            "Liquid level: "
+            f"{inspection.absolute_level:.2f}"
+        )
+
+    print(
+        "Acceptable range: "
+        f"{liquid_config.acceptable_minimum:.2f} "
+        "< level < "
+        f"{liquid_config.acceptable_maximum:.2f}"
+    )
+
+
+def print_cork_preview(
+    args: argparse.Namespace,
+) -> None:
+    """Inspect and report one cork-template preview."""
+    inspection_config = load_inspection_config(
+        args.config
+    )
+
+    cork_config = (
+        inspection_config.cork
+    )
+
+    if not cork_config.enabled:
+        raise ConfigurationError(
+            "Cork inspection is disabled "
+            "in the selected profile."
+        )
+
+    if cork_config.minimum_match_score is None:
+        raise ConfigurationError(
+            "Cork inspection requires "
+            "minimum_match_score."
+        )
+
+    algorithm_config = CorkConfig(
+        method=cork_config.method,
+        minimum_match_score=(
+            cork_config.minimum_match_score
+        ),
+    )
+
+    result = save_cork_preview(
+        args.input_video,
+        args.output_image,
+        cork_config.template,
+        config=algorithm_config,
+        frame_index=args.frame_index,
+        overwrite=args.overwrite,
+    )
+
+    inspection = result.inspection
+
+    print(
+        f"Profile: {inspection_config.profile}"
+    )
+    print(
+        "Configuration: "
+        f"{args.config.expanduser().resolve()}"
+    )
+    print(
+        f"Input video: {result.input_path}"
+    )
+    print(
+        f"Output image: {result.output_path}"
+    )
+    print(
+        f"Cork template: {result.template_path}"
+    )
+    print(
+        f"Frame index: {result.frame_index}"
+    )
+    print(
+        f"Timestamp: "
+        f"{result.timestamp_seconds:.3f} seconds"
+    )
+    print(
+        f"Method: {cork_config.method}"
+    )
+    print(
+        f"Status: {inspection.status.value}"
+    )
+    print(
+        "Best match score: "
+        f"{inspection.maximum_score:.4f}"
+    )
+    print(
+        "Minimum required score: "
+        f"{cork_config.minimum_match_score:.4f}"
+    )
+    print(
+        "Matches at or above threshold: "
+        f"{inspection.matches_at_or_above_threshold}"
+    )
+    print(
+        "Best match location: "
+        f"x={inspection.maximum_location[0]}, "
+        f"y={inspection.maximum_location[1]}"
+    )
+    print(
+        "Template size: "
+        f"{inspection.template_width} x "
+        f"{inspection.template_height}"
     )
 
 
@@ -322,11 +808,15 @@ def main() -> int:
 
     try:
         if args.command == "metadata":
-            print_video_metadata(args.video)
+            print_video_metadata(
+                args.video
+            )
             return 0
 
         if args.command == "scan":
-            print_video_scan(args.video)
+            print_video_scan(
+                args.video
+            )
             return 0
 
         if args.command == "copy":
@@ -339,19 +829,49 @@ def main() -> int:
             return 0
 
         if args.command == "roi-preview":
-            print_roi_preview(args)
+            print_roi_preview(
+                args
+            )
             return 0
 
         if args.command == "roi-video":
-            print_roi_video(args)
+            print_roi_video(
+                args
+            )
             return 0
 
-    except (OSError, ValueError, BottleInspectionError) as exc:
-        parser.error(str(exc))
+        if args.command == "foreign-object-preview":
+            print_foreign_object_preview(
+                args
+            )
+            return 0
+
+        if args.command == "liquid-level-preview":
+            print_liquid_level_preview(
+                args
+            )
+            return 0
+
+        if args.command == "cork-preview":
+            print_cork_preview(
+                args
+            )
+            return 0
+
+    except (
+        OSError,
+        ValueError,
+        BottleInspectionError,
+    ) as exc:
+        parser.error(
+            str(exc)
+        )
 
     parser.print_help()
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        main()
+    )
