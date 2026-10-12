@@ -25,3 +25,9 @@ class ImageWriteError(BottleInspectionError):
 
 class FrameProcessingError(BottleInspectionError):
     """Raised when a frame processor returns an invalid result or fails."""
+
+class InspectionError(BottleInspectionError):
+    """Raised when an image inspection cannot be completed."""
+
+class ConfigurationError(BottleInspectionError):
+    """Raised when an inspection configuration is missing or invalid."""

@@ -1,0 +1,130 @@
+profile = "legacy-2022"
+
+[inspection]
+require_all_checks = true
+
+
+# -------------------------------------------------------------------
+# Bottle localization
+#
+# The 2022 video implementation used bottle template matching to locate
+# the bottle but did not define a PASS/FAIL score threshold.
+# -------------------------------------------------------------------
+
+[bottle]
+enabled = true
+template = "legacy/2022/assets/bottle_template.jpg"
+method = "TM_CCOEFF_NORMED"
+
+
+# -------------------------------------------------------------------
+# Cork inspection
+#
+# The standalone 2022 cork experiment used an 0.80 match threshold.
+# -------------------------------------------------------------------
+
+[cork]
+enabled = true
+template = "legacy/2022/assets/correct_cork.jpg"
+method = "TM_CCOEFF_NORMED"
+minimum_match_score = 0.80
+
+
+# -------------------------------------------------------------------
+# Foreign-object / dark-spot inspection
+# -------------------------------------------------------------------
+
+[foreign_object]
+enabled = true
+
+gaussian_kernel_size = 5
+closing_kernel_size = 13
+content_blur_kernel_size = 11
+
+canny_low_threshold = 17
+canny_high_threshold = 60
+
+content_threshold = 127
+reflection_threshold = 156
+
+component_count = 2
+minimum_contour_area = 1.0
+defect_pixel_threshold = 900
+
+
+[foreign_object.roi]
+x = 600
+y = 300
+width = 200
+height = 700
+
+
+# Coordinates are relative to foreign_object.roi.
+#
+# Legacy absolute coordinates:
+# x = 600:780
+# y = 570:850
+#
+# Therefore relative coordinates are:
+# x = 0
+# y = 270
+# width = 180
+# height = 280
+
+[foreign_object.decision_region]
+x = 0
+y = 270
+width = 180
+height = 280
+
+
+# -------------------------------------------------------------------
+# Liquid-level inspection
+# -------------------------------------------------------------------
+
+[liquid_level]
+enabled = true
+
+# These preserve the two Canny arguments exactly as written in the
+# original 2022 implementation.
+canny_threshold1 = 252
+canny_threshold2 = 119
+
+hough_rho = 1.0
+hough_theta_degrees = 1.0
+hough_threshold = 15
+minimum_line_length = 20
+maximum_line_gap = 10
+
+acceptable_minimum = 225.0
+acceptable_maximum = 247.0
+
+
+[liquid_level.roi]
+x = 910
+y = 300
+width = 200
+height = 700
+
+
+# The original code requested x=0:300, but the parent ROI is only
+# 200 pixels wide. The effective crop is therefore 200 pixels wide.
+
+[liquid_level.neck_region]
+x = 0
+y = 192
+width = 200
+height = 58
+
+
+# -------------------------------------------------------------------
+# Glass-integrity inspection
+#
+# The 2022 project contains preprocessing experiments and a broken-glass
+# example, but no completed PASS/FAIL decision rule.
+# decision_method is therefore intentionally omitted.
+# -------------------------------------------------------------------
+
+[glass]
+enabled = true
+defect_reference = "legacy/2022/assets/broken_glass.jpg"
