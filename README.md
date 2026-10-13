@@ -2,54 +2,97 @@
 
 A production-oriented computer vision system for automated bottle quality inspection.
 
-## Project status
+This repository modernizes a Machine Vision project originally developed in 2022 for an ouzo bottling process. The original experimental scripts are preserved for historical reference, while the modern implementation provides reusable inspection modules, configuration, bottle tracking, multi-frame decisions, automated tests, structured reports, and a command-line application.
 
-This repository is an active modernization of a Machine Vision project originally developed in 2022.
+## Current status
 
-The original implementation inspected bottles moving through an ouzo bottling process and detected quality problems using classical computer vision techniques.
+The project now supports an end-to-end bottle inspection workflow.
 
-The new implementation aims to provide a clean, configurable, tested, and deployment-ready inspection pipeline.
+A source video can be processed into physical bottle-level decisions using multiple inspection stations and multiple frames per bottle.
 
-## Planned inspection capabilities
+Current checks include:
 
-- Bottle detection
-- Cap or cork inspection
+- Foreign-object / dark-spot inspection
 - Liquid fill-level inspection
-- Foreign-object detection
-- Bottle damage and crack detection
-- Annotated video generation
-- Bottle-level inspection reports
-- Performance and quality metrics
+- Glass-integrity inspection
+- Cork-presence inspection
+- Bottle passage detection
+- Cross-station bottle association
+- Multi-frame evidence aggregation
+- Final GOOD / REVIEW / DEFECTIVE bottle decisions
+- CSV reporting
+- JSON reporting
+- Annotated inspection video
+- Review evidence images
+- Rejected bottle evidence images
 
-## Project objectives
+The original 2022 computer-vision behavior is preserved where a historical decision rule existed. Newer aggregation and glass-classification rules are explicitly treated as modern project logic rather than rewritten history.
 
-The project will:
-
-1. Reproduce the working behaviour of the original 2022 implementation.
-2. Refactor the original scripts into reusable Python modules.
-3. Add bottle tracking and bottle-level decisions.
-4. Add automated tests and code-quality checks.
-5. Provide configurable inspection rules.
-6. Support deployment through a command-line application.
-7. Provide a demonstration interface after the inspection engine is stable.
-
-## Repository structure
+## Inspection workflow
 
 ```text
-bottle-quality-inspection/
-├── docs/                     Project documentation
-├── legacy/                   Preserved historical implementations
-│   ├── 2022/                 Original university implementation
-│   └── 2025/                 Experimental revised implementation
-├── src/
-│   └── bottle_quality_inspection/
-│                              Production application source code
-├── tests/                    Automated tests
-├── pyproject.toml            Python project configuration
-└── README.md
+Input video
+    |
+    v
+Bottle passage detection
+    |
+    +--------------------------+
+    |                          |
+    v                          v
+Foreign-object station     Downstream station
+                               |
+                               +--> Liquid level
+                               +--> Glass integrity
+                               +--> Cork presence
+    |                          |
+    +------------+-------------+
+                 |
+                 v
+      Cross-station association
+                 |
+                 v
+       Multi-frame aggregation
+                 |
+                 v
+        Physical bottle result
+                 |
+        +--------+--------+
+        |        |        |
+       GOOD    REVIEW  DEFECTIVE
+                 |
+                 v
+    CSV / JSON / annotated video
 ```
 
-## Development setup
+## Final bottle decisions
+
+The final decision belongs to a tracked physical bottle rather than to an individual video frame.
+
+`GOOD` means that every required bottle-level check passed.
+
+`DEFECTIVE` means that at least one inspection check produced sufficiently strong repeated evidence of a confirmed defect.
+
+`REVIEW` means that the system found uncertain or inconsistent evidence that should not automatically be treated as either good or defective.
+
+This distinction is important because individual video frames can contain transition noise, partial visibility, reflections, or temporary occlusion.
+
+## Example result
+
+Using the original 2022 inspection video, the current pipeline identifies three complete physical bottle passages:
+
+```text
+bottle-001 -> GOOD
+bottle-002 -> REVIEW
+bottle-003 -> GOOD
+```
+
+The REVIEW decision for `bottle-002` is caused by an isolated foreign-object threshold crossing that was not repeated strongly enough to confirm a defect.
+
+The recording also contains one unmatched downstream bottle because the video begins after that bottle has already passed the upstream inspection station.
+
+## Installation
+
+Python 3.12 is currently required.
 
 Create and activate a virtual environment:
 
@@ -58,158 +101,381 @@ py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-Install the package and development tools:
+Upgrade pip:
 
 ```powershell
 python -m pip install --upgrade pip
+```
+
+Install the project in editable mode together with development tools:
+
+```powershell
 python -m pip install -e ".[dev]"
 ```
 
-Run the application:
+## Command-line application
+
+After installation, the project can be run either as a Python module:
+
+```powershell
+python -m bottle_quality_inspection --help
+```
+
+or through the installed console command:
+
+```powershell
+bottle-inspection --help
+```
+
+### Complete inspection
+
+Run the full physical-bottle inspection workflow:
+
+```powershell
+bottle-inspection inspect `
+    path\to\input.mp4 `
+    --config configs\legacy-2022.toml `
+    --output-dir outputs\inspection
+```
+
+Replace existing output artifacts:
+
+```powershell
+bottle-inspection inspect `
+    path\to\input.mp4 `
+    --config configs\legacy-2022.toml `
+    --output-dir outputs\inspection `
+    --overwrite
+```
+
+The equivalent module command is:
+
+```powershell
+python -m bottle_quality_inspection inspect `
+    path\to\input.mp4 `
+    --config configs\legacy-2022.toml `
+    --output-dir outputs\inspection `
+    --overwrite
+```
+
+## Inspection outputs
+
+A complete inspection produces:
+
+```text
+outputs/inspection/
+├── inspection-results.csv
+├── inspection-results.json
+├── annotated-inspection.mp4
+├── review/
+│   └── bottle-XXX-frame-YYY.jpg
+└── rejected/
+    └── bottle-XXX-frame-YYY.jpg
+```
+
+### CSV
+
+The CSV report contains one row per associated physical bottle.
+
+It includes fields such as:
+
+```text
+bottle_id
+final_status
+foreign_object_status
+foreign_defective_frames
+foreign_max_black_pixels
+liquid_level_status
+liquid_median_level
+glass_status
+glass_defective_frames
+cork_status
+cork_top_k_median
+cork_margin
+foreign_start_frame
+foreign_end_frame
+downstream_start_frame
+downstream_end_frame
+travel_frame_offset
+defective_checks
+review_checks
+```
+
+### JSON
+
+The JSON report preserves the richer nested inspection information, including:
+
+```text
+run summary
+physical bottle IDs
+tracking information
+per-check evidence
+liquid measurements
+foreign-object measurements
+glass results
+cork-presence evidence
+review reasons
+confirmed defect reasons
+unmatched station passages
+```
+
+### Annotated video
+
+The annotated video displays the active physical bottle ID, inspection station, and final bottle status while the bottle passes through the configured inspection regions.
+
+### Review and rejected images
+
+Bottles with uncertain evidence are written to:
+
+```text
+review/
+```
+
+Confirmed defective bottles are written to:
+
+```text
+rejected/
+```
+
+GOOD bottles do not produce flagged evidence images.
+
+## Inspection configuration
+
+Inspection parameters are stored in TOML profiles.
+
+The historical reconstruction is currently configured through:
+
+```text
+configs/legacy-2022.toml
+```
+
+This profile contains the original inspection regions and historical thresholds where they could be recovered from the 2022 source code.
+
+Configuration includes:
+
+- Foreign-object ROI
+- Foreign-object decision region
+- Canny thresholds
+- Morphological parameters
+- Historical foreign-object pixel threshold
+- Liquid-level ROI
+- Liquid-level neck region
+- Hough line parameters
+- Acceptable liquid-level range
+- Cork template
+- Historical cork template threshold
+- Glass reference image
+
+## Inspection components
+
+### Foreign objects
+
+The foreign-object detector reconstructs the original 2022 image-processing pipeline.
+
+The historical frame-level defect rule is preserved:
+
+```text
+decision black pixels > 900
+```
+
+The modern bottle-level layer evaluates evidence across the complete upstream bottle passage instead of using only one frame.
+
+### Liquid level
+
+The liquid-level implementation preserves the historical edge detection and Hough-line logic.
+
+The original acceptable range is:
+
+```text
+225 < liquid level < 247
+```
+
+The modern bottle-level decision uses the median of valid multi-frame measurements so that entry and exit transition frames do not dominate the physical-bottle result.
+
+### Glass integrity
+
+The original project contained several glass preprocessing experiments but no complete historical PASS/FAIL classifier.
+
+The modern implementation therefore separates:
+
+```text
+historical preprocessing
+```
+
+from:
+
+```text
+2026 project-specific glass classification
+```
+
+The current glass thresholds are calibrated to the available project images and video and should not be interpreted as universal manufacturing tolerances.
+
+### Cork presence
+
+The historical project used grayscale template matching with:
+
+```text
+TM_CCOEFF_NORMED
+threshold = 0.80
+```
+
+Whole-frame matching was found to be unreliable when multiple bottles were visible simultaneously.
+
+The modern implementation instead evaluates cork evidence inside the tracked bottle ROI across multiple frames.
+
+Current cork classification confirms:
+
+```text
+PRESENT
+```
+
+or:
+
+```text
+UNVERIFIED
+```
+
+It does not claim to identify physical cork damage because the available legacy dataset does not contain labeled defective-cork examples.
+
+## Bottle tracking
+
+The current tracking model is designed for the fixed-camera conveyor sequence present in the original project.
+
+It detects bottle passages independently at the upstream and downstream inspection stations and associates them using monotonic conveyor order and temporal offset.
+
+This is intentionally simpler than a generic object re-identification system.
+
+## Repository structure
+
+```text
+bottle-quality-inspection/
+├── configs/
+│   └── legacy-2022.toml
+├── docs/
+│   └── inspection-requirements.md
+├── legacy/
+│   ├── 2022/
+│   │   ├── assets/
+│   │   ├── media/
+│   │   └── scripts/
+│   └── 2025/
+├── src/
+│   └── bottle_quality_inspection/
+│       ├── inspections/
+│       ├── bottle_pipeline.py
+│       ├── bottle_result.py
+│       ├── config.py
+│       ├── reporting.py
+│       ├── tracking.py
+│       ├── video_io.py
+│       └── visual_reporting.py
+├── tests/
+├── tools/
+├── pyproject.toml
+└── README.md
+```
+
+## Legacy implementations
+
+Historical work is preserved under `legacy/`.
+
+The production application does not directly import the historical scripts.
+
+Relevant algorithms were reviewed and then reconstructed inside the modern package with validation tests.
+
+The local original video:
+
+```text
+legacy/2022/media/20221014_155146-trim.mp4
+```
+
+is intentionally excluded from Git.
+
+## Diagnostic tools
+
+The `tools/` directory contains engineering utilities used during reconstruction, calibration, and validation.
+
+These scripts include diagnostics for:
+
+- liquid-level detection
+- cork matching
+- tracked cork evidence
+- glass preprocessing
+- glass classifier validation
+- bottle passage detection
+- bottle association visualization
+- multi-frame bottle evidence
+- report export
+- visual inspection export
+
+They support development and calibration but are not the primary product interface.
+
+The supported application interface is:
+
+```powershell
+bottle-inspection
+```
+
+or:
 
 ```powershell
 python -m bottle_quality_inspection
 ```
 
-Run the tests:
+## Development
+
+Run the complete automated test suite:
 
 ```powershell
 pytest
 ```
 
-Run code-quality checks:
+Run code-quality validation:
 
 ```powershell
 ruff check .
 ```
-## Video metadata
 
-Inspect and validate a local video file:
-
-```powershell
-python -m bottle_quality_inspection metadata path\to\video.mp4
-```
-
-Example using the local legacy video:
+Run both before committing:
 
 ```powershell
-python -m bottle_quality_inspection metadata legacy\2022\media\20221014_155146-trim.mp4
+ruff check .
+pytest
 ```
 
-The command reports:
+## Current limitations
 
-- Video resolution
-- Frames per second
-- Frame count
-- Estimated duration
+The project currently has several intentional limitations:
 
-It also validates that the file exists, is a regular file, can be opened by OpenCV, and contains valid dimensions.
+- Cork inspection confirms presence, not physical cork quality.
+- No labeled uncorked or physically defective cork dataset is currently available.
+- Glass decision thresholds are project-specific rather than universal.
+- Bottle association assumes fixed inspection stations and monotonic conveyor motion.
+- The current configuration is calibrated to the historical project footage.
+- The project is not yet validated against a large industrial dataset.
+- The inspection engine currently processes recorded video rather than a production PLC-triggered live camera stream.
 
-## Video tools
+These limitations are kept explicit so that the system does not claim capabilities unsupported by the available data.
 
-### Read video metadata
+## Roadmap
 
-Validate a local video and display its technical properties:
+Planned next steps include:
 
-```powershell
-python -m bottle_quality_inspection metadata path\to\video.mp4
-```
+1. Larger labeled datasets for each defect type.
+2. Better bottle localization and tracking for more varied scenes.
+3. True cork-defect examples and classification.
+4. Industrial glass-damage validation.
+5. Performance benchmarking on longer videos.
+6. Live-camera inspection support.
+7. Production logging and monitoring.
+8. Containerized deployment.
+9. Demonstration interface.
+10. Integration with rejection hardware or manufacturing systems.
 
-Example output:
+## Version
 
 ```text
-Resolution: 2400 x 1080
-FPS: 30.20
-Frames: 92
-Estimated duration: 3.05 seconds
+0.1.0
 ```
 
-The command validates that:
-
-- The path exists
-- The path points to a file
-- OpenCV can open the video
-- The video has valid dimensions
-
-### Scan a complete video
-
-Decode every video frame and report processing throughput:
-
-```powershell
-python -m bottle_quality_inspection scan path\to\video.mp4
-```
-
-Example using the original local test video:
-
-```powershell
-python -m bottle_quality_inspection scan legacy\2022\media\20221014_155146-trim.mp4
-```
-
-Example output:
-
-```text
-Frames decoded: 92
-Elapsed time: 1.595 seconds
-Processing FPS: 57.69
-```
-
-The scan command:
-
-- Reads frames sequentially
-- Assigns each frame an index
-- Calculates frame timestamps
-- Detects empty or invalid frames
-- Releases OpenCV resources automatically
-- Reports total decoding performance
-
-The original video is excluded from Git and must be available locally.
-
-### Copy and validate a video
-
-Decode and re-encode a complete video into a validated output file:
-
-```powershell
-python -m bottle_quality_inspection copy `
-    path\to\input.mp4 `
-    outputs\copied-video.mp4
-```
-
-Replace an existing output file:
-
-```powershell
-python -m bottle_quality_inspection copy `
-    path\to\input.mp4 `
-    outputs\copied-video.mp4 `
-    --overwrite
-```
-
-Use another four-character OpenCV codec:
-
-```powershell
-python -m bottle_quality_inspection copy `
-    path\to\input.mp4 `
-    outputs\copied-video.mp4 `
-    --codec mp4v
-```
-
-The command validates:
-
-- Input and output paths are different
-- The codec contains exactly four characters
-- The source video has valid dimensions and FPS
-- Every decoded frame matches the expected dimensions
-- The output writer opens successfully
-- Existing outputs are not overwritten accidentally
-- Incomplete output files are removed after failures
-
-## Historical implementations
-
-The original 2022 and experimental 2025 implementations will be preserved under `legacy/`.
-
-The production application will not directly import code from the legacy folders. Relevant logic will be reviewed, tested, and migrated into the new package.
-
-## Current version
-
-```text
-0.1.0 — Initial project structure
-```
+The project is under active development.

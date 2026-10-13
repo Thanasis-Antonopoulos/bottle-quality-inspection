@@ -20,8 +20,11 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "ruff>=0.6"
+    "ruff>=0.6",
 ]
+
+[project.scripts]
+bottle-inspection = "bottle_quality_inspection.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -42,5 +45,5 @@ select = [
     "F",
     "I",
     "UP",
-    "B"
+    "B",
 ]
