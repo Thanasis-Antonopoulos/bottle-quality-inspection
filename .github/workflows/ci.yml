@@ -29,6 +29,12 @@ jobs:
       - name: Install project
         run: python -m pip install -e ".[dev]"
 
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Compile package and tests
+        run: python -m compileall -q src tests
+
       - name: Run Ruff
         run: ruff check .
 
@@ -38,5 +44,11 @@ jobs:
       - name: Check module CLI
         run: python -m bottle_quality_inspection --help
 
+      - name: Check module inspect command
+        run: python -m bottle_quality_inspection inspect --help
+
       - name: Check installed console CLI
         run: bottle-inspection --help
+
+      - name: Check installed inspect command
+        run: bottle-inspection inspect --help
