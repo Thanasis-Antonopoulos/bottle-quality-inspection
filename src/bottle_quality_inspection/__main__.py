@@ -4,17 +4,14 @@ import argparse
 from pathlib import Path
 
 from bottle_quality_inspection import __version__
-from bottle_quality_inspection.bottle_pipeline import (
-    inspect_tracked_bottles,
-)
-from bottle_quality_inspection.bottle_result import (
-    BottleStatus,
-)
 from bottle_quality_inspection.calibration import save_roi_preview
 from bottle_quality_inspection.config import load_inspection_config
 from bottle_quality_inspection.exceptions import (
     BottleInspectionError,
     ConfigurationError,
+)
+from bottle_quality_inspection.execution import (
+    execute_inspection,
 )
 from bottle_quality_inspection.inspection_preview import (
     save_cork_preview,
@@ -27,17 +24,11 @@ from bottle_quality_inspection.inspections.liquid_level import (
 )
 from bottle_quality_inspection.pipeline import process_video
 from bottle_quality_inspection.processors import RoiOverlayProcessor
-from bottle_quality_inspection.reporting import (
-    write_inspection_reports,
-)
 from bottle_quality_inspection.roi import RegionOfInterest
 from bottle_quality_inspection.video_io import (
     copy_video,
     read_video_metadata,
     scan_video,
-)
-from bottle_quality_inspection.visual_reporting import (
-    write_visual_inspection_artifacts,
 )
 
 
@@ -175,6 +166,15 @@ def add_inspect_arguments(
         help=(
             "Base filename for CSV and JSON reports. "
             "Default: inspection-results."
+        ),
+    )
+
+    parser.add_argument(
+        "--metrics-filename",
+        default="inspection-metrics.json",
+        help=(
+            "Filename for quality and runtime metrics. "
+            "Default: inspection-metrics.json."
         ),
     )
 
@@ -1072,48 +1072,18 @@ def print_complete_inspection(
     print()
 
     print(
-        "Running tracked bottle inspection..."
+        "Running complete bottle inspection..."
     )
 
-    run = inspect_tracked_bottles(
-        args.input_video,
-        inspection_config,
-    )
-
-    print(
-        "Writing CSV and JSON reports..."
-    )
-
-    reports = write_inspection_reports(
-        run,
-        output_dir,
-        stem=args.stem,
-        overwrite=args.overwrite,
-    )
-
-    print(
-        "Writing annotated video and "
-        "flagged bottle images..."
-    )
-
-    foreign_region = (
-        inspection_config.foreign_object
-        .roi
-        .to_roi()
-    )
-
-    downstream_region = (
-        inspection_config.liquid_level
-        .roi
-        .to_roi()
-    )
-
-    visuals = (
-        write_visual_inspection_artifacts(
-            run,
+    execution_result = (
+        execute_inspection(
+            args.input_video,
+            inspection_config,
             output_dir,
-            foreign_region,
-            downstream_region,
+            stem=args.stem,
+            metrics_filename=(
+                args.metrics_filename
+            ),
             video_filename=(
                 args.video_filename
             ),
@@ -1122,42 +1092,18 @@ def print_complete_inspection(
         )
     )
 
-    review_dir = (
-        output_dir
-        / "review"
+    run = execution_result.run
+    reports = execution_result.reports
+    visuals = execution_result.visuals
+
+    quality = (
+        execution_result
+        .quality_metrics
     )
 
-    rejected_dir = (
-        output_dir
-        / "rejected"
-    )
-
-    review_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    rejected_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    good_count = sum(
-        tracked.result.status
-        is BottleStatus.GOOD
-        for tracked in run.bottles
-    )
-
-    defective_count = sum(
-        tracked.result.status
-        is BottleStatus.DEFECTIVE
-        for tracked in run.bottles
-    )
-
-    review_count = sum(
-        tracked.result.status
-        is BottleStatus.REVIEW
-        for tracked in run.bottles
+    timing = (
+        execution_result
+        .timing_metrics
     )
 
     print()
@@ -1172,29 +1118,29 @@ def print_complete_inspection(
 
     print(
         "Associated bottles: "
-        f"{run.bottle_count}"
+        f"{quality.associated_bottles}"
     )
 
     print(
-        f"GOOD: {good_count}"
+        f"GOOD: {quality.good}"
     )
 
     print(
-        f"REVIEW: {review_count}"
+        f"REVIEW: {quality.review}"
     )
 
     print(
-        f"DEFECTIVE: {defective_count}"
+        f"DEFECTIVE: {quality.defective}"
     )
 
     print(
         "Unmatched foreign passages: "
-        f"{len(run.unmatched_foreign_passages)}"
+        f"{quality.unmatched_foreign_passages}"
     )
 
     print(
         "Unmatched downstream passages: "
-        f"{len(run.unmatched_downstream_passages)}"
+        f"{quality.unmatched_downstream_passages}"
     )
 
     print()
@@ -1254,6 +1200,123 @@ def print_complete_inspection(
     print()
 
     print(
+        "CHECK METRICS"
+    )
+
+    print(
+        "-------------"
+    )
+
+    print(
+        "Foreign object: "
+        f"clear={quality.foreign_object.clear}, "
+        f"review={quality.foreign_object.review}, "
+        f"defective={quality.foreign_object.defective}"
+    )
+
+    print(
+        "Liquid level: "
+        f"clear={quality.liquid_level.clear}, "
+        f"review={quality.liquid_level.review}, "
+        f"defective={quality.liquid_level.defective}"
+    )
+
+    print(
+        "Glass: "
+        f"clear={quality.glass.clear}, "
+        f"review={quality.glass.review}, "
+        f"defective={quality.glass.defective}"
+    )
+
+    print(
+        "Cork: "
+        f"clear={quality.cork.clear}, "
+        f"review={quality.cork.review}, "
+        f"defective={quality.cork.defective}"
+    )
+
+    print()
+
+    print(
+        "PERFORMANCE"
+    )
+
+    print(
+        "-----------"
+    )
+
+    print(
+        "Source frames: "
+        f"{timing.source_frame_count}"
+    )
+
+    print(
+        "Source FPS: "
+        f"{timing.source_fps:.2f}"
+    )
+
+    if (
+        timing.source_duration_seconds
+        is None
+    ):
+        print(
+            "Source duration: unavailable"
+        )
+    else:
+        print(
+            "Source duration: "
+            f"{timing.source_duration_seconds:.3f} seconds"
+        )
+
+    print(
+        "Inspection time: "
+        f"{timing.inspection_seconds:.3f} seconds"
+    )
+
+    print(
+        "Report-writing time: "
+        f"{timing.report_seconds:.3f} seconds"
+    )
+
+    print(
+        "Visual-output time: "
+        f"{timing.visual_seconds:.3f} seconds"
+    )
+
+    print(
+        "Measured pipeline time: "
+        f"{timing.total_seconds:.3f} seconds"
+    )
+
+    if (
+        timing.effective_processing_fps
+        is None
+    ):
+        print(
+            "Effective processing FPS: unavailable"
+        )
+    else:
+        print(
+            "Effective processing FPS: "
+            f"{timing.effective_processing_fps:.2f}"
+        )
+
+    if (
+        timing.realtime_factor
+        is None
+    ):
+        print(
+            "Real-time factor: unavailable"
+        )
+    else:
+        print(
+            "Real-time factor: "
+            f"{timing.realtime_factor:.2f}x"
+        )
+
+    print()
+
+    print(
         "OUTPUT ARTIFACTS"
     )
 
@@ -1272,18 +1335,23 @@ def print_complete_inspection(
     )
 
     print(
+        "Metrics: "
+        f"{execution_result.metrics_path.json_path}"
+    )
+
+    print(
         "Annotated video: "
         f"{visuals.video_result.output_path}"
     )
 
     print(
-        f"Review directory: "
-        f"{review_dir}"
+        "Review directory: "
+        f"{execution_result.review_dir}"
     )
 
     print(
-        f"Rejected directory: "
-        f"{rejected_dir}"
+        "Rejected directory: "
+        f"{execution_result.rejected_dir}"
     )
 
     print(
